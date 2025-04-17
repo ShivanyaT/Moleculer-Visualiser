@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ChemCompute - Molecular Visualizer</title>
+  <style>
+    :root {
+      --bg-light: #f0f0f0;
+      --bg-dark: #1e1e1e;
+      --text-light: #000;
+      --text-dark: #fff;
+      --container-light: #ffffff;
+      --container-dark: #2c2c2c;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: var(--bg-light);
+      color: var(--text-light);
+      margin: 0;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    body.dark {
+      background: var(--bg-dark);
+      color: var(--text-dark);
+    }
+
+    .container {
+      max-width: 500px;
+      margin: 50px auto;
+      padding: 20px;
+      background: var(--container-light);
+      box-shadow: 0px 0px 10px rgba(0,0,0,0.1);
+      border-radius: 10px;
+      transition: background 0.3s;
+    }
+
+    body.dark .container {
+      background: var(--container-dark);
+    }
+
+    label {
+      font-weight: bold;
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+      background: inherit;
+      color: inherit;
+    }
+
+    button {
+      padding: 10px;
+      background: #4CAF50;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+
+    button:hover {
+      background: #45a049;
+    }
+
+    #visualizer-container {
+      max-width: 800px;
+      margin: 30px auto;
+      padding: 20px;
+      display: none;
+      background: var(--container-light);
+      border-radius: 10px;
+    }
+
+    body.dark #visualizer-container {
+      background: var(--container-dark);
+    }
+
+    canvas {
+      width: 100%;
+      height: 500px;
+      display: block;
+      background: #fff;
+      border-radius: 10px;
+    }
+
+    body.dark canvas {
+      background: #333;
+    }
+
+    #theme-toggle {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(90deg, #000 50%, #fff 50%);
+      border: 2px solid #888;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="theme-toggle" onclick="toggleTheme()" title="Toggle Theme"></div>
+
+  <div class="container">
+    <h2>Molecular Visualizer</h2>
+    <label for="molecule-name">Enter Molecule Name (e.g. water, benzene):</label>
+    <input type="text" id="molecule-name" placeholder="e.g. methane, ethanol">
+    <button onclick="fetchMolecule()">Visualize</button>
+  </div>
+
+  <div id="visualizer-container">
+    <canvas id="visualizer"></canvas>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+  <script>
+    let scene, camera, renderer, controls;
+    const elementColors = {
+      H: 0xffffff, C: 0x000000, O: 0xff0000, N: 0x0000ff,
+      Cl: 0x00ff00, S: 0xffff00, P: 0xff8000, F: 0x00ff80,
+      Br: 0x804000
+    };
+
+    function toggleTheme() {
+      document.body.classList.toggle("dark");
+    }
+
+    function setup3DScene() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, 800 / 500, 0.1, 1000);
+      camera.position.z = 5;
+
+      renderer = new THREE.WebGLRenderer({
+        canvas: document.getElementById('visualizer'),
+        antialias: true
+      });
+      renderer.setSize(800, 500);
+
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      animate();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    function fetchMolecule() {
+      const name = document.getElementById("molecule-name").value.trim().toLowerCase();
+      if (!name) return alert("Please enter a molecule name");
+
+      const url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(name)}/SDF`;
+
+      fetch(url)
+        .then(res => {
+          if (!res.ok) throw new Error("Molecule not found");
+          return res.text();
+        })
+        .then(data => {
+          document.getElementById("visualizer-container").style.display = "block";
+          if (!scene) setup3DScene();
+          parseSDF(data);
+        })
+        .catch(err => alert(err.message));
+    }
+
+    function parseSDF(sdf) {
+      scene.clear();
+      const light1 = new THREE.PointLight(0xffffff, 1);
+      light1.position.set(10, 10, 10);
+      scene.add(light1);
+      scene.add(new THREE.AmbientLight(0x404040));
+
+      const lines = sdf.split('\n');
+      const countsLineIndex = lines.findIndex(line => /^\s*\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+[0-9]+/.test(line));
+      if (countsLineIndex === -1) return alert("Invalid SDF format");
+
+      const countsLine = lines[countsLineIndex];
+      const atomCount = parseInt(countsLine.slice(0, 3));
+      const bondCount = parseInt(countsLine.slice(3, 6));
+
+      const atomLines = lines.slice(countsLineIndex + 1, countsLineIndex + 1 + atomCount);
+      const bondLines = lines.slice(countsLineIndex + 1 + atomCount, countsLineIndex + 1 + atomCount + bondCount);
+
+      const atoms = [];
+
+      atomLines.forEach(line => {
+        const x = parseFloat(line.slice(0, 10));
+        const y = parseFloat(line.slice(10, 20));
+        const z = parseFloat(line.slice(20, 30));
+        const element = line.slice(31, 34).trim();
+        const color = elementColors[element] || 0xaaaaaa;
+
+        const geometry = new THREE.SphereGeometry(0.2, 32, 32);
+        const material = new THREE.MeshPhongMaterial({ color });
+        const atom = new THREE.Mesh(geometry, material);
+        atom.position.set(x, y, z);
+        scene.add(atom);
+
+        atoms.push({ element, x, y, z, mesh: atom });
+      });
+
+      bondLines.forEach(line => {
+        const idx1 = parseInt(line.slice(0, 3)) - 1;
+        const idx2 = parseInt(line.slice(3, 6)) - 1;
+
+        if (idx1 < atoms.length && idx2 < atoms.length) {
+          const atomA = atoms[idx1].mesh.position;
+          const atomB = atoms[idx2].mesh.position;
+          const material = new THREE.MeshBasicMaterial({ color: 0x999999 });
+          const bond = createBond(atomA, atomB, material);
+          scene.add(bond);
+        }
+      });
+    }
+
+    function createBond(start, end, material) {
+      const dir = new THREE.Vector3().subVectors(end, start);
+      const length = dir.length();
+      const geometry = new THREE.CylinderGeometry(0.05, 0.05, length, 8);
+      const mesh = new THREE.Mesh(geometry, material);
+      const midpoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+      mesh.position.copy(midpoint);
+      mesh.lookAt(end);
+      mesh.rotateX(Math.PI / 2);
+      return mesh;
+    }
+  </script>
+</body>
+</html>
